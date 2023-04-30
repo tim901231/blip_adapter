@@ -48,6 +48,8 @@ from transformers.models.bert.configuration_bert import BertConfig
 from lavis.common.utils import get_abs_path
 
 from lavis.models.base_model import BaseEncoder
+from lavis.models.adapter import Adapter
+
 
 logging.set_verbosity_error()
 logger = logging.get_logger(__name__)
@@ -309,6 +311,12 @@ class BertAttention(nn.Module):
         self.self = BertSelfAttention(config, is_cross_attention)
         self.output = BertSelfOutput(config)
         self.pruned_heads = set()
+        self.adapter = Adapter(
+            in_features=768,
+            hidden_features=256,
+            act_layer=nn.GELU,
+            drop=0.1
+        )
 
     def prune_heads(self, heads):
         if len(heads) == 0:
@@ -352,7 +360,9 @@ class BertAttention(nn.Module):
             past_key_value,
             output_attentions,
         )
-        attention_output = self.output(self_outputs[0], hidden_states)
+        self_output = self.adapter(self_outputs[0])
+        attention_output = self.output(self_output, hidden_states)
+        # print(attention_output.shape)
         outputs = (attention_output,) + self_outputs[
             1:
         ]  # add attentions if we output them
@@ -380,10 +390,16 @@ class BertOutput(nn.Module):
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
+        self.adapter = Adapter(
+            in_features=config.hidden_size,
+            hidden_features=256,
+            act_layer=nn.GELU,
+            drop=0.1
+        )
     def forward(self, hidden_states, input_tensor):
         hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
+        hidden_states = self.adapter(hidden_states)
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
 
@@ -418,6 +434,8 @@ class BertLayer(nn.Module):
             )
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
+
+
 
     def forward(
         self,
@@ -490,10 +508,9 @@ class BertLayer(nn.Module):
             self.seq_len_dim,
             attention_output,
         )
+        # print(layer_output.shape)
         outputs = (layer_output,) + outputs
-
         outputs = outputs + (present_key_value,)
-
         return outputs
 
     def feed_forward_chunk(self, attention_output):

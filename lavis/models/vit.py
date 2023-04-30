@@ -21,7 +21,7 @@ from timm.models.helpers import named_apply, adapt_input_conv
 
 from fairscale.nn.checkpoint.checkpoint_activations import checkpoint_wrapper
 from lavis.models.base_model import BaseEncoder
-
+from lavis.models.adapter import Adapter
 
 class Mlp(nn.Module):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
@@ -112,6 +112,7 @@ class Attention(nn.Module):
         return x
 
 
+
 class Block(nn.Module):
     def __init__(
         self,
@@ -126,6 +127,7 @@ class Block(nn.Module):
         act_layer=nn.GELU,
         norm_layer=nn.LayerNorm,
         use_grad_checkpointing=False,
+        adapter_hidden_features=256
     ):
         super().__init__()
         self.norm1 = norm_layer(dim)
@@ -137,6 +139,12 @@ class Block(nn.Module):
             attn_drop=attn_drop,
             proj_drop=drop,
         )
+        self.adapter1 = Adapter(
+            in_features=dim,
+            hidden_features=adapter_hidden_features,
+            act_layer=act_layer,
+            drop=drop
+        )
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -147,14 +155,20 @@ class Block(nn.Module):
             act_layer=act_layer,
             drop=drop,
         )
+        self.adapter2 = Adapter(
+            in_features=dim,
+            hidden_features=adapter_hidden_features,
+            act_layer=act_layer,
+            drop=drop
+        )
 
         if use_grad_checkpointing:
             self.attn = checkpoint_wrapper(self.attn)
             self.mlp = checkpoint_wrapper(self.mlp)
 
     def forward(self, x, register_hook=False):
-        x = x + self.drop_path(self.attn(self.norm1(x), register_hook=register_hook))
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        x = x + self.drop_path(self.adapter1(self.attn(self.norm1(x), register_hook=register_hook)))
+        x = x + self.drop_path(self.adapter2(self.mlp(self.norm2(x))))
         return x
 
 

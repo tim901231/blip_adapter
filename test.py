@@ -18,7 +18,5 @@ caption = model.generate({"image": image})
 print(caption)
 
 for n, p in model.named_parameters():
-    if 'adapter' in n:
+    if p.requires_grad:
         print(n)
-    else:
-        p.requires_grad = False

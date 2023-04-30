@@ -216,4 +216,9 @@ class BlipCaption(BlipBase):
         model = cls(image_encoder, text_decoder, prompt=prompt, max_txt_len=max_txt_len)
         model.load_checkpoint_from_config(cfg)
 
+        for n, p in model.named_parameters():
+            if 'adapter' not in n:
+                p.requires_grad = False
+        print("Freezing except adapter")
+
         return model
